@@ -1,0 +1,2 @@
+"""OpenClaw stock data workspace."""
+

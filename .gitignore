@@ -1,0 +1,16 @@
+.env
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+.venv/
+venv/
+deploy/
+cron/
+workspace/data/*.db
+workspace/logs/*.log
+workspace/logs/*.out
+workspace/logs/*.err
+openclaw.json
