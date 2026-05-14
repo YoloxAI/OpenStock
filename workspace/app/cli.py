@@ -6,7 +6,7 @@ from typing import Optional
 
 from .config import ConfigError, load_settings
 from .db import init_db
-from .jobs import run_daily_job, sync_daily, sync_daily_latest, sync_stock_basic
+from .jobs import run_daily_job, sync_daily, sync_daily_latest, sync_finance, sync_stock_basic
 from .tushare_client import TushareClient, TushareClientError
 
 
@@ -20,6 +20,9 @@ def build_parser() -> argparse.ArgumentParser:
     sync_daily_parser = subparsers.add_parser("sync-daily", help="Sync daily quotes by date")
     sync_daily_parser.add_argument("--date", required=True, help="Trade date in YYYYMMDD")
 
+    sync_finance_parser = subparsers.add_parser("sync-finance", help="Sync finance indicators by period")
+    sync_finance_parser.add_argument("--period", required=True, help="Report period in YYYYMMDD")
+
     subparsers.add_parser("sync-daily-latest", help="Sync daily quotes for latest trade date")
     subparsers.add_parser("run-daily-job", help="Run stock basic sync and latest daily sync")
 
@@ -28,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _validate_trade_date(value: str) -> str:
     if len(value) != 8 or not value.isdigit():
-        raise ValueError("Trade date must use YYYYMMDD format.")
+        raise ValueError("Date value must use YYYYMMDD format.")
     return value
 
 
@@ -54,6 +57,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             result = sync_stock_basic(settings.db_path, client)
         elif args.command == "sync-daily":
             result = sync_daily(settings.db_path, client, _validate_trade_date(args.date))
+        elif args.command == "sync-finance":
+            result = sync_finance(settings.db_path, client, _validate_trade_date(args.period))
         elif args.command == "sync-daily-latest":
             result = sync_daily_latest(settings.db_path, client)
         elif args.command == "run-daily-job":

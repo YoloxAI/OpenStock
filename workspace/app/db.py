@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -11,20 +10,16 @@ SCHEMA_STATEMENTS = [
     """
     CREATE TABLE IF NOT EXISTS stock_basic (
         ts_code TEXT PRIMARY KEY,
-        symbol TEXT NOT NULL,
         name TEXT NOT NULL,
-        area TEXT,
         industry TEXT,
         market TEXT,
-        list_status TEXT,
         list_date TEXT,
-        delist_date TEXT,
-        is_hs TEXT,
+        list_status TEXT,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
     """,
     """
-    CREATE TABLE IF NOT EXISTS daily_quotes (
+    CREATE TABLE IF NOT EXISTS stock_daily (
         ts_code TEXT NOT NULL,
         trade_date TEXT NOT NULL,
         open REAL,
@@ -32,22 +27,48 @@ SCHEMA_STATEMENTS = [
         low REAL,
         close REAL,
         pre_close REAL,
-        change REAL,
         pct_chg REAL,
         vol REAL,
         amount REAL,
+        turnover_rate REAL,
+        volume_ratio REAL,
+        pe_ttm REAL,
+        pb REAL,
+        total_mv REAL,
+        circ_mv REAL,
+        adj_factor REAL,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (ts_code, trade_date)
     )
     """,
     """
-    CREATE TABLE IF NOT EXISTS sync_runs (
+    CREATE TABLE IF NOT EXISTS stock_finance (
+        ts_code TEXT NOT NULL,
+        ann_date TEXT,
+        end_date TEXT NOT NULL,
+        roe REAL,
+        grossprofit_margin REAL,
+        netprofit_margin REAL,
+        tr_yoy REAL,
+        netprofit_yoy REAL,
+        dt_netprofit_yoy REAL,
+        debt_to_assets REAL,
+        ocf_to_or REAL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (ts_code, end_date)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS sync_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        task_name TEXT NOT NULL,
+        api_name TEXT NOT NULL,
+        start_date TEXT,
+        end_date TEXT,
         status TEXT NOT NULL,
-        details TEXT,
-        started_at TEXT NOT NULL,
-        finished_at TEXT NOT NULL
+        row_count INTEGER DEFAULT 0,
+        error_msg TEXT,
+        started_at TEXT,
+        finished_at TEXT
     )
     """,
 ]
@@ -71,29 +92,28 @@ def init_db(db_path: Path) -> None:
             connection.execute(statement)
 
 
+def _project_rows(rows: Iterable[Dict[str, object]], fields: list[str]) -> list[Dict[str, object]]:
+    return [{field: row.get(field) for field in fields} for row in rows]
+
+
 def upsert_stock_basic(db_path: Path, rows: Iterable[Dict[str, object]]) -> int:
-    rows_list = list(rows)
+    fields = ["ts_code", "name", "industry", "market", "list_date", "list_status"]
+    rows_list = _project_rows(rows, fields)
     if not rows_list:
         return 0
 
     sql = """
         INSERT INTO stock_basic (
-            ts_code, symbol, name, area, industry, market,
-            list_status, list_date, delist_date, is_hs, updated_at
+            ts_code, name, industry, market, list_date, list_status, updated_at
         ) VALUES (
-            :ts_code, :symbol, :name, :area, :industry, :market,
-            :list_status, :list_date, :delist_date, :is_hs, CURRENT_TIMESTAMP
+            :ts_code, :name, :industry, :market, :list_date, :list_status, CURRENT_TIMESTAMP
         )
         ON CONFLICT(ts_code) DO UPDATE SET
-            symbol=excluded.symbol,
             name=excluded.name,
-            area=excluded.area,
             industry=excluded.industry,
             market=excluded.market,
-            list_status=excluded.list_status,
             list_date=excluded.list_date,
-            delist_date=excluded.delist_date,
-            is_hs=excluded.is_hs,
+            list_status=excluded.list_status,
             updated_at=CURRENT_TIMESTAMP
     """
 
@@ -102,18 +122,39 @@ def upsert_stock_basic(db_path: Path, rows: Iterable[Dict[str, object]]) -> int:
     return len(rows_list)
 
 
-def upsert_daily_quotes(db_path: Path, rows: Iterable[Dict[str, object]]) -> int:
-    rows_list = list(rows)
+def upsert_stock_daily(db_path: Path, rows: Iterable[Dict[str, object]]) -> int:
+    fields = [
+        "ts_code",
+        "trade_date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "pre_close",
+        "pct_chg",
+        "vol",
+        "amount",
+        "turnover_rate",
+        "volume_ratio",
+        "pe_ttm",
+        "pb",
+        "total_mv",
+        "circ_mv",
+        "adj_factor",
+    ]
+    rows_list = _project_rows(rows, fields)
     if not rows_list:
         return 0
 
     sql = """
-        INSERT INTO daily_quotes (
+        INSERT INTO stock_daily (
             ts_code, trade_date, open, high, low, close, pre_close,
-            change, pct_chg, vol, amount, updated_at
+            pct_chg, vol, amount, turnover_rate, volume_ratio, pe_ttm,
+            pb, total_mv, circ_mv, adj_factor, updated_at
         ) VALUES (
             :ts_code, :trade_date, :open, :high, :low, :close, :pre_close,
-            :change, :pct_chg, :vol, :amount, CURRENT_TIMESTAMP
+            :pct_chg, :vol, :amount, :turnover_rate, :volume_ratio, :pe_ttm,
+            :pb, :total_mv, :circ_mv, :adj_factor, CURRENT_TIMESTAMP
         )
         ON CONFLICT(ts_code, trade_date) DO UPDATE SET
             open=excluded.open,
@@ -121,10 +162,16 @@ def upsert_daily_quotes(db_path: Path, rows: Iterable[Dict[str, object]]) -> int
             low=excluded.low,
             close=excluded.close,
             pre_close=excluded.pre_close,
-            change=excluded.change,
             pct_chg=excluded.pct_chg,
             vol=excluded.vol,
             amount=excluded.amount,
+            turnover_rate=excluded.turnover_rate,
+            volume_ratio=excluded.volume_ratio,
+            pe_ttm=excluded.pe_ttm,
+            pb=excluded.pb,
+            total_mv=excluded.total_mv,
+            circ_mv=excluded.circ_mv,
+            adj_factor=excluded.adj_factor,
             updated_at=CURRENT_TIMESTAMP
     """
 
@@ -133,24 +180,79 @@ def upsert_daily_quotes(db_path: Path, rows: Iterable[Dict[str, object]]) -> int
     return len(rows_list)
 
 
-def insert_sync_run(
+def upsert_stock_finance(db_path: Path, rows: Iterable[Dict[str, object]]) -> int:
+    fields = [
+        "ts_code",
+        "ann_date",
+        "end_date",
+        "roe",
+        "grossprofit_margin",
+        "netprofit_margin",
+        "tr_yoy",
+        "netprofit_yoy",
+        "dt_netprofit_yoy",
+        "debt_to_assets",
+        "ocf_to_or",
+    ]
+    rows_list = _project_rows(rows, fields)
+    if not rows_list:
+        return 0
+
+    sql = """
+        INSERT INTO stock_finance (
+            ts_code, ann_date, end_date, roe, grossprofit_margin,
+            netprofit_margin, tr_yoy, netprofit_yoy, dt_netprofit_yoy,
+            debt_to_assets, ocf_to_or, updated_at
+        ) VALUES (
+            :ts_code, :ann_date, :end_date, :roe, :grossprofit_margin,
+            :netprofit_margin, :tr_yoy, :netprofit_yoy, :dt_netprofit_yoy,
+            :debt_to_assets, :ocf_to_or, CURRENT_TIMESTAMP
+        )
+        ON CONFLICT(ts_code, end_date) DO UPDATE SET
+            ann_date=excluded.ann_date,
+            roe=excluded.roe,
+            grossprofit_margin=excluded.grossprofit_margin,
+            netprofit_margin=excluded.netprofit_margin,
+            tr_yoy=excluded.tr_yoy,
+            netprofit_yoy=excluded.netprofit_yoy,
+            dt_netprofit_yoy=excluded.dt_netprofit_yoy,
+            debt_to_assets=excluded.debt_to_assets,
+            ocf_to_or=excluded.ocf_to_or,
+            updated_at=CURRENT_TIMESTAMP
+    """
+
+    with connect(db_path) as connection:
+        connection.executemany(sql, rows_list)
+    return len(rows_list)
+
+
+def insert_sync_log(
     db_path: Path,
-    task_name: str,
+    api_name: str,
     status: str,
-    started_at: str,
-    finished_at: str,
-    details: Optional[Dict[str, object]] = None,
+    started_at: Optional[str] = None,
+    finished_at: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    row_count: int = 0,
+    error_msg: Optional[str] = None,
 ) -> None:
     with connect(db_path) as connection:
         connection.execute(
             """
-            INSERT INTO sync_runs (task_name, status, details, started_at, finished_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO sync_log (
+                api_name, start_date, end_date, status, row_count,
+                error_msg, started_at, finished_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                task_name,
+                api_name,
+                start_date,
+                end_date,
                 status,
-                None if details is None else json.dumps(details, ensure_ascii=False),
+                row_count,
+                error_msg,
                 started_at,
                 finished_at,
             ),

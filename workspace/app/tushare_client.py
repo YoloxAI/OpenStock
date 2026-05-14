@@ -33,15 +33,43 @@ class TushareClient:
         frame = self._pro.stock_basic(
             exchange="",
             list_status="L",
-            fields=(
-                "ts_code,symbol,name,area,industry,market,"
-                "list_status,list_date,delist_date,is_hs"
-            ),
+            fields="ts_code,name,industry,market,list_date,list_status",
         )
         return self._frame_to_records(frame)
 
     def get_daily_quotes(self, trade_date: str) -> List[Dict[str, object]]:
-        frame = self._pro.daily(trade_date=trade_date)
+        frame = self._pro.daily(
+            trade_date=trade_date,
+            fields="ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol,amount",
+        )
+        return self._frame_to_records(frame)
+
+    def get_daily_basic(self, trade_date: str) -> List[Dict[str, object]]:
+        frame = self._pro.daily_basic(
+            trade_date=trade_date,
+            fields=(
+                "ts_code,trade_date,turnover_rate,volume_ratio,"
+                "pe_ttm,pb,total_mv,circ_mv"
+            ),
+        )
+        return self._frame_to_records(frame)
+
+    def get_adj_factor(self, trade_date: str) -> List[Dict[str, object]]:
+        frame = self._pro.adj_factor(
+            trade_date=trade_date,
+            fields="ts_code,trade_date,adj_factor",
+        )
+        return self._frame_to_records(frame)
+
+    def get_fina_indicator(self, period: str) -> List[Dict[str, object]]:
+        frame = self._pro.fina_indicator(
+            period=period,
+            fields=(
+                "ts_code,ann_date,end_date,roe,grossprofit_margin,"
+                "netprofit_margin,tr_yoy,netprofit_yoy,dt_netprofit_yoy,"
+                "debt_to_assets,ocf_to_or"
+            ),
+        )
         return self._frame_to_records(frame)
 
     def get_latest_trade_date(self) -> str:
@@ -58,4 +86,3 @@ class TushareClient:
         if not records:
             raise TushareClientError("No trading calendar data returned from Tushare.")
         return str(records[-1]["cal_date"])
-
